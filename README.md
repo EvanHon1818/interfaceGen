@@ -1,223 +1,187 @@
 # Interface Test Case Generator
 
-This project uses LangChain and RAG (Retrieval Augmented Generation) to automatically generate comprehensive test cases for APIs. It generates test cases across multiple dimensions:
-- Functional testing
-- Performance testing
-- Boundary testing
-- Exception testing
+基于 LangChain 的 API 测试用例自动生成工具。该工具可以根据 API 定义和现有测试用例，自动生成功能测试、性能测试、边界测试和异常测试用例。
 
-## Features
+## 特性
 
-- RAG-based test case generation using existing test cases as context
-- Support for multiple test dimensions
-- Structured output format for easy integration
-- API parameter analysis and validation
-- Customizable prompt templates
-- Learning from previous test cases to improve future generations
-- Support for specific scenario generation
-- CLI interface for easy usage
+- 🚀 自动生成多维度测试用例
+  - 功能测试：验证 API 的基本功能和业务逻辑
+  - 性能测试：检查响应时间、并发处理能力等性能指标
+  - 边界测试：测试参数边界值和极限情况
+  - 异常测试：验证错误处理和异常情况的响应
 
-## Core Components
+- 🧠 智能测试生成
+  - 使用大语言模型（LLM）生成测试用例
+  - 支持 RAG（检索增强生成）利用现有测试用例
+  - 智能提示工程确保生成高质量测试用例
 
-1. **Models**:
-   - API definition models for structured input
-   - Test case models with comprehensive metadata
-   - Support for various parameter types and constraints
+- ⚙️ 灵活配置
+  - 支持 OpenAI 和 Azure OpenAI
+  - 可配置的模型参数和生成策略
+  - 环境变量配置支持
 
-2. **RAG System**:
-   - Storage and retrieval of similar test cases
-   - Learning from generated test cases
-   - Context-aware test case generation
+## 项目结构
 
-3. **Prompt Templates**:
-   - Specialized templates for each test type
-   - Customizable generation guidelines
-   - Support for specific scenarios
-
-4. **Test Case Generator**:
-   - LangChain and OpenAI integration
-   - Temperature control for different test types
-   - Structured output generation
-
-## Setup
-
-1. Create and activate a virtual environment (recommended):
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+interface_gen/
+├── __init__.py          # 项目初始化和公共接口
+├── config.py            # 配置管理
+├── constants.py         # 常量定义
+├── exceptions.py        # 异常类定义
+├── core/               # 核心功能
+│   ├── generator.py    # 测试用例生成
+│   ├── rag.py         # RAG实现
+│   └── prompts.py     # 提示模板
+├── models/            # 数据模型
+│   ├── api.py        # API定义模型
+│   └── test_case.py  # 测试用例模型
+└── utils/            # 工具类
+    ├── json_utils.py # JSON处理
+    └── logger.py     # 日志工具
 ```
 
-2. Install dependencies:
+## 安装
+
+1. 创建虚拟环境：
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# 或
+.venv\Scripts\activate  # Windows
+```
+
+2. 安装依赖：
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Set up environment variables:
-```bash
-# Required: OpenAI API Key
-export OPENAI_API_KEY=your-api-key-here
+## 环境变量配置
 
-# Optional: Custom OpenAI API configuration
-export OPENAI_API_BASE=your-custom-api-base-url  # e.g., https://api.openai.com/v1
-export OPENAI_API_VERSION=your-api-version       # e.g., 2024-02-15
-export OPENAI_API_TYPE=your-api-type            # e.g., azure, open_ai, etc.
+创建 `.env` 文件并配置以下环境变量：
 
-# For Azure OpenAI (when OPENAI_API_TYPE=azure):
-export AZURE_OPENAI_DEPLOYMENT=your-deployment-name  # Azure deployment name
-
-# Optional: Model configuration
-export MODEL_NAME=gpt-4-turbo-preview
-export EMBEDDING_MODEL=text-embedding-3-small
-
-# Optional: Vector store configuration
-export VECTOR_STORE_PATH=./data/vector_store
-
-# Optional: Temperature settings for different test types
-export TEMPERATURE_FUNCTIONAL=0.3
-export TEMPERATURE_PERFORMANCE=0.4
-export TEMPERATURE_BOUNDARY=0.5
-export TEMPERATURE_EXCEPTION=0.7
+### OpenAI 配置
+```env
+OPENAI_API_KEY=your_api_key
+MODEL_NAME=gpt-4-turbo-preview
+EMBEDDING_MODEL=text-embedding-3-small
 ```
 
-### Azure OpenAI Configuration Example
-
-If you're using Azure OpenAI, set up your environment like this:
-
-```bash
-# Azure OpenAI configuration
-export OPENAI_API_KEY=your-azure-api-key
-export OPENAI_API_BASE=https://your-resource-name.openai.azure.com
-export OPENAI_API_TYPE=azure
-export OPENAI_API_VERSION=2024-02-15-preview
-export AZURE_OPENAI_DEPLOYMENT=your-gpt-deployment-name
-export EMBEDDING_MODEL=your-embedding-deployment-name
+### Azure OpenAI 配置（可选）
+```env
+OPENAI_API_TYPE=azure
+OPENAI_API_BASE=your_azure_endpoint
+OPENAI_API_VERSION=2024-02-15-preview
+AZURE_OPENAI_DEPLOYMENT=your_deployment_name
 ```
 
-## Usage
-
-### 1. Create API Definition
-
-Create a JSON file describing your API (see `examples/user_api.json` for a complete example):
-
-```python
-{
-    "name": "create_user",
-    "description": "Create a new user account",
-    "method": "POST",
-    "path": "/api/v1/users",
-    "input_params": {
-        "username": {
-            "type": "string",
-            "description": "User's username",
-            "required": true,
-            "constraints": {
-                "min_length": 3,
-                "max_length": 50
-            }
-        }
-    },
-    "output_params": {
-        "user_id": {
-            "type": "string",
-            "description": "Unique identifier"
-        }
-    }
-}
+### 其他配置
+```env
+VECTOR_STORE_PATH=./data/vector_store
+TEMPERATURE_FUNCTIONAL=0.7
+TEMPERATURE_PERFORMANCE=0.7
+TEMPERATURE_BOUNDARY=0.7
+TEMPERATURE_EXCEPTION=0.7
 ```
 
-### 2. Generate Test Cases
+## 使用方法
 
-Use the CLI to generate test cases:
+1. 准备 API 定义文件（JSON 格式）：
 
-```bash
-# Generate all types of test cases
-python -m interface_gen.cli examples/user_api.json -o output/test_cases.json
-
-# Generate specific types of test cases
-python -m interface_gen.cli examples/user_api.json -t functional performance -n 5
-
-# Generate a test case for a specific scenario
-python -m interface_gen.cli examples/user_api.json \
-    --scenario "Test password strength requirements" \
-    --scenario-type functional
-```
-
-### 3. Test Case Output
-
-Generated test cases include:
-- Unique identifier
-- Name and description
-- Input data
-- Expected output
-- Pre and post conditions
-- Relevant tags
-- Type-specific metrics (e.g., performance thresholds)
-
-Example test case output:
 ```json
 {
-    "id": "test_001",
-    "name": "Valid user registration",
-    "description": "Test user registration with valid input data",
-    "type": "functional",
-    "input_data": {
-        "username": "testuser",
-        "email": "test@example.com",
-        "password": "SecurePass123!"
+  "name": "getUserInfo",
+  "description": "获取用户信息接口",
+  "method": "GET",
+  "path": "/api/users/{userId}",
+  "input_params": {
+    "userId": {
+      "type": "string",
+      "description": "用户ID"
+    }
+  },
+  "output_params": {
+    "name": {
+      "type": "string",
+      "description": "用户名"
     },
-    "expected_output": {
-        "status": "success",
-        "user_id": "usr_123456789"
-    },
-    "preconditions": ["Database is accessible"],
-    "postconditions": ["User is created in database"],
-    "tags": ["registration", "happy-path"]
+    "age": {
+      "type": "integer",
+      "description": "年龄"
+    }
+  },
+  "example_cases": {
+    "success_case": {
+      "input": {"userId": "12345"},
+      "output": {"name": "张三", "age": 25}
+    }
+  }
 }
 ```
 
-## Test Case Types
+2. 使用命令行工具生成测试用例：
 
-1. **Functional Testing**:
-   - Core functionality verification
-   - Success scenarios
-   - Response format validation
-   - Business logic testing
-   - Data persistence checks
+```bash
+python -m interface_gen.cli --api-file examples/user_api.json --output test_cases.json
+```
 
-2. **Performance Testing**:
-   - Response time measurements
-   - Throughput capabilities
-   - Resource utilization
-   - Concurrent request handling
-   - Performance thresholds
+可选参数：
+- `--test-types`: 指定测试类型（功能/性能/边界/异常）
+- `--num-cases`: 每种类型生成的用例数量
+- `--debug`: 启用调试模式
 
-3. **Boundary Testing**:
-   - Edge cases for all parameters
-   - Minimum/maximum values
-   - Data type limits
-   - Empty/null handling
-   - String length boundaries
+## 核心组件
 
-4. **Exception Testing**:
-   - Error handling scenarios
-   - Invalid input combinations
-   - Error response format
-   - Security validation
-   - System unavailability scenarios
+### 1. 配置管理 (`config.py`)
+- 统一管理所有配置项
+- 支持环境变量配置
+- 分离 OpenAI、RAG 和测试配置
 
-## RAG System
+### 2. RAG 系统 (`core/rag.py`)
+- 使用 FAISS 向量存储
+- 支持相似测试用例检索
+- 智能利用现有测试用例
 
-The RAG (Retrieval Augmented Generation) system:
-- Stores generated test cases for future reference
-- Learns from existing test cases to improve generation
-- Provides context-aware suggestions
-- Supports filtering by test type and API
-- Enables similarity-based test case retrieval
+### 3. 提示模板 (`core/prompts.py`)
+- 针对不同测试类型的专门提示
+- 结构化输出格式
+- 智能上下文整合
 
-## Contributing
+### 4. 测试生成器 (`core/generator.py`)
+- 集成 LLM 和 RAG
+- 智能测试用例生成
+- 结果验证和格式化
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+### 5. 工具类
+- JSON 处理工具
+- 日志管理
+- 异常处理
 
-## License
+## 测试用例类型
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+### 功能测试
+- 验证基本功能
+- 检查业务逻辑
+- 确保预期输出
+
+### 性能测试
+- 响应时间测试
+- 并发处理能力
+- 资源使用情况
+
+### 边界测试
+- 参数边界值
+- 数据类型限制
+- 特殊字符处理
+
+### 异常测试
+- 错误参数处理
+- 异常情况响应
+- 安全性测试
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 许可证
+
+MIT License 
