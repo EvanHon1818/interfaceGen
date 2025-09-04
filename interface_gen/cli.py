@@ -47,8 +47,8 @@ def main():
     parser.add_argument(
         "-n", "--num-cases",
         type=int,
-        default=3,
-        help="Number of test cases to generate per type"
+        default=5,
+        help="Number of test cases to generate per type (default: 5)"
     )
     parser.add_argument(
         "--scenario",

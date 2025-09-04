@@ -402,6 +402,141 @@
                 "priceInfo": null,
                 "saleInfo": null
             }
+        },
+        "success_gem_concert": {
+            "input": {
+                "traceid": "e2f34e97-7e07-7300-a65a-175507824616",
+                "poiId": 151795016,
+                "coordinate": {
+                    "coordinateType": "WGS84",
+                    "longitude": 31.220404180017084,
+                    "latitude": 121.35108500738814
+                },
+                "scene": "ticket_detail",
+                "head": {
+                    "sauth": "",
+                    "extension": [
+                        {
+                            "name": "gs_activitybiz_source",
+                            "value": "poiBizCore"
+                        },
+                        {
+                            "name": "traceId",
+                            "value": "e2f34e97-7e07-7300-a65a-175507824616"
+                        },
+                        {
+                            "name": "appid",
+                            "value": "99999999"
+                        }
+                    ],
+                    "lang": "01",
+                    "syscode": "12",
+                    "appid": "99999999",
+                    "sid": "8890",
+                    "auth": "E94CCF84534FB7B026A46C38F73C2313AF0EEB0054370D4F0E506FB3CB2F997E",
+                    "cver": "883.006",
+                    "ctok": "5ccc1cbfd227bd79d29d2069dba89494cfa64476ddd9cce80cb5c4a9525c9f57",
+                    "cid": "12001038490324423051"
+                }
+            },
+            "output": {
+                "ResponseStatus": {
+                    "Timestamp": "/Date(1756908957140+0800)/",
+                    "Ack": "Success",
+                    "Errors": []
+                },
+                "result": 0,
+                "useLocalCache": false,
+                "basicInfo": {
+                    "poiId": 151795016,
+                    "businessId": 151795016,
+                    "coordinate": {
+                        "coordinateType": "BD09",
+                        "latitude": 31.276450,
+                        "longitude": 121.485840
+                    },
+                    "poiType": 66,
+                    "poiName": "上海 · G.E.M.邓紫棋 I AM GLORIA世界巡回演唱会2.0",
+                    "districtId": 2,
+                    "districtName": "上海",
+                    "address": "上海市东江湾路444号",
+                    "activityType": 1,
+                    "hotScore": "7.4",
+                    "sourceFrom": "concert"
+                },
+                "timeInfo": {
+                    "timeDesc": "2025.09.05-2025.09.07 18:45、2025.09.12-2025.09.14 18:45、2025.09.19-2025.09.21 18:45",
+                    "tips": "开始时间及时长以现场为准",
+                    "timeList": [
+                        {
+                            "dateDesc": "2025.09.05-2025.09.07",
+                            "weekDesc": "周五~周日",
+                            "timeDesc": "18:45"
+                        },
+                        {
+                            "dateDesc": "2025.09.12-2025.09.14",
+                            "weekDesc": "周五~周日",
+                            "timeDesc": "18:45"
+                        },
+                        {
+                            "dateDesc": "2025.09.19-2025.09.21",
+                            "weekDesc": "周五~周日",
+                            "timeDesc": "18:45"
+                        }
+                    ],
+                    "openStatusType": 0
+                },
+                "imageInfo": {
+                    "poiPhotoImageList": [
+                        "https://dimg04.c-ctrip.com/images/0103r12000d4vq1fn6B93.jpg"
+                    ],
+                    "isBigType": false,
+                    "backgroundImage": "https://pages.c-ctrip.com/you/ttd/activityDetail/bg_isSmall.png"
+                },
+                "priceInfo": {
+                    "priceType": "5"
+                },
+                "channelInfo": {
+                    "name": "演唱会",
+                    "icon": "https://pages.c-ctrip.com/you/ttd/activityDetail/activity-entry-colour_2.png"
+                },
+                "concertInfo": {
+                    "concertInfoList": [
+                        {
+                            "name": "上海站",
+                            "time": "08.29-09.21",
+                            "poiId": 151795016,
+                            "isCurrentPoi": true,
+                            "isOver": false,
+                            "hasTicket": false,
+                            "isSoldOut": false,
+                            "isBookable": false
+                        },
+                        {
+                            "name": "成都站",
+                            "time": "10.18-10.19",
+                            "poiId": 152943366,
+                            "isCurrentPoi": false,
+                            "isOver": false,
+                            "hasTicket": false,
+                            "isSoldOut": false,
+                            "isBookable": false
+                        }
+                    ]
+                },
+                "saleInfo": {
+                    "saleStatus": 0,
+                    "hasSale": false,
+                    "hasStockOut": false,
+                    "isBackorderAllowed": false,
+                    "isBookable": false
+                },
+                "introductionInfo": {
+                    "introduce": "从Gloria开始，认识⼀个全新的邓紫棋。她是⾸位解锁中国五⼤体育场的⼥歌⼿，是2024年度华语乐坛主题巡演票房总冠军。",
+                    "showDuration": "约120分钟（以现场为准）",
+                    "actorName": "邓紫棋"
+                }
+            }
         }
     }
 } 

@@ -26,6 +26,13 @@ def extract_json_from_response(response: str) -> dict:
     # Parse JSON
     parsed_json = json.loads(json_str)
     
+    # Handle case where LLM returns an array instead of single object
+    if isinstance(parsed_json, list):
+        if len(parsed_json) > 0:
+            parsed_json = parsed_json[0]  # Take the first item
+        else:
+            raise ValueError("Empty JSON array returned")
+    
     # Handle nested TestCase structure
     if "TestCase" in parsed_json:
         return parsed_json["TestCase"]
@@ -104,7 +111,7 @@ class TestCaseGenerator:
         self,
         api_definition: APIDefinition,
         test_types: Optional[List[str]] = None,
-        num_cases_per_type: int = 3
+        num_cases_per_type: int = 5
     ) -> List[TestCase]:
         """Generate test cases for the given API definition"""
         if test_types is None:
