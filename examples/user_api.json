@@ -1,0 +1,100 @@
+{
+    "name": "create_user",
+    "description": "Create a new user account in the system",
+    "method": "POST",
+    "path": "/api/v1/users",
+    "input_params": {
+        "username": {
+            "name": "username",
+            "type": "string",
+            "description": "User's unique username",
+            "required": true,
+            "constraints": {
+                "min_length": 3,
+                "max_length": 50,
+                "pattern": "^[a-zA-Z0-9_-]+$"
+            }
+        },
+        "email": {
+            "name": "email",
+            "type": "string",
+            "description": "User's email address",
+            "required": true,
+            "constraints": {
+                "pattern": "^[^@]+@[^@]+\\.[^@]+$"
+            }
+        },
+        "password": {
+            "name": "password",
+            "type": "string",
+            "description": "User's password",
+            "required": true,
+            "constraints": {
+                "min_length": 8,
+                "max_length": 128,
+                "pattern": "^(?=.*[A-Za-z])(?=.*\\d)(?=.*[@$!%*#?&])[A-Za-z\\d@$!%*#?&]{8,}$"
+            }
+        },
+        "full_name": {
+            "name": "full_name",
+            "type": "string",
+            "description": "User's full name",
+            "required": false,
+            "constraints": {
+                "max_length": 100
+            }
+        },
+        "age": {
+            "name": "age",
+            "type": "integer",
+            "description": "User's age in years",
+            "required": false,
+            "constraints": {
+                "minimum": 13,
+                "maximum": 120
+            }
+        }
+    },
+    "output_params": {
+        "user_id": {
+            "name": "user_id",
+            "type": "string",
+            "description": "Unique identifier for the created user",
+            "required": true
+        },
+        "created_at": {
+            "name": "created_at",
+            "type": "string",
+            "description": "Timestamp of user creation",
+            "required": true,
+            "constraints": {
+                "format": "ISO8601"
+            }
+        },
+        "status": {
+            "name": "status",
+            "type": "string",
+            "description": "Status of the user creation",
+            "required": true,
+            "constraints": {
+                "enum": ["active", "pending_verification", "blocked"]
+            }
+        }
+    },
+    "example_cases": {
+        "success": {
+            "input": {
+                "username": "johndoe",
+                "email": "john.doe@example.com",
+                "password": "SecurePass123!",
+                "full_name": "John Doe",
+                "age": 25
+            },
+            "output": {
+                "user_id": "usr_123456789",
+                "created_at": "2024-03-15T10:30:00Z",
+                "status": "pending_verification"
+            }
+        }
+    }
+} 
