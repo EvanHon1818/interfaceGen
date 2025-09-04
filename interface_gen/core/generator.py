@@ -32,6 +32,8 @@ class TestCaseGenerator:
                 "api_version": openai_api_version or "2024-02-15-preview",
                 "temperature": 0.7
             }
+            # Remove None values to avoid parameter conflicts
+            config = {k: v for k, v in config.items() if v is not None}
             self.llm = AzureChatOpenAI(**config)
         else:
             # Use standard ChatOpenAI

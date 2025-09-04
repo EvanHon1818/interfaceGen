@@ -29,6 +29,8 @@ class TestCaseRAG:
                 "azure_endpoint": openai_api_base,
                 "api_version": openai_api_version or "2024-02-15-preview",
             }
+            # Remove None values to avoid parameter conflicts
+            config = {k: v for k, v in config.items() if v is not None}
             self.embeddings = AzureOpenAIEmbeddings(**config)
         else:
             # Use standard OpenAI Embeddings
