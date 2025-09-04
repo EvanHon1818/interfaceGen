@@ -2,7 +2,7 @@ from langchain.prompts import PromptTemplate
 from typing import Dict, Any
 
 # Base template for all test case types
-BASE_TEMPLATE = """You are a test automation expert. Your task is to generate comprehensive test cases for an API endpoint.
+BASE_TEMPLATE = """You are a test automation expert. Generate a {test_type} test case for this API:
 
 API Definition:
 {api_definition}
@@ -10,52 +10,24 @@ API Definition:
 Similar Test Cases for Reference:
 {similar_cases}
 
-Generate a {test_type} test case that follows these guidelines:
+Guidelines:
 {guidelines}
 
-IMPORTANT: This is part of a comprehensive test suite where we need:
-- Functional tests: 5 different scenarios covering various business logic paths
-- Performance tests: 5 different load/stress scenarios  
-- Boundary tests: 5 different edge cases and limit validations
-- Exception tests: At least 5 different error handling scenarios
+Required fields:
+- name: Clear and descriptive name
+- description: Detailed test description
+- type: "{test_type}"
+- input_data: Dictionary of input parameters
+- expected_output: Dictionary of expected response
+- preconditions: List of preconditions
+- postconditions: List of postconditions
+- tags: List of relevant tags
 
-The test case should be detailed and include ALL of the following required fields:
-1. name: A clear and descriptive name that indicates the specific scenario being tested
-2. description: Detailed description of what the test verifies and why it's important
-3. type: The test type (must be one of: "functional", "performance", "boundary", "exception")
-4. input_data: Dictionary containing the input parameters for this specific scenario
-5. expected_output: Dictionary containing the expected response for this scenario
-6. preconditions: List of required preconditions (can be empty list)
-7. postconditions: List of expected postconditions (can be empty list)
-8. tags: List of relevant tags for categorization (can be empty list)
+Additional fields for specific types:
+- For performance tests: Include "performance_metrics" dictionary
+- For exception tests: Include "expected_exception" string
 
-For performance tests, also include:
-- performance_metrics: Dictionary with expected metrics (example: response_time_ms: 500, throughput_rps: 100)
-
-For exception tests, also include:
-- expected_exception: String describing the expected exception type
-
-Make sure each test case covers a DIFFERENT scenario or aspect to ensure comprehensive coverage.
-
-RESPONSE FORMAT REQUIREMENTS:
-1. Return a single JSON object (not an array)
-2. Use double quotes for all strings and property names
-3. Do not include trailing commas
-4. Do not include any markdown formatting
-5. Ensure all JSON values are properly formatted (strings in quotes, numbers without quotes)
-6. Do not include any explanatory text outside the JSON object
-
-Example format:
-{
-    "name": "Test Name",
-    "description": "Test Description",
-    "type": "functional",
-    "input_data": {},
-    "expected_output": {},
-    "preconditions": [],
-    "postconditions": [],
-    "tags": []
-}"""
+IMPORTANT: Return ONLY a JSON object with these fields. No markdown, no explanations."""
 
 # Guidelines for different test types
 GUIDELINES = {
@@ -110,8 +82,33 @@ class TestCasePrompts:
         if test_type not in GUIDELINES:
             raise ValueError(f"Unknown test type: {test_type}")
 
-        # Create the template with placeholders for all variables
-        template = BASE_TEMPLATE.replace("{test_type}", test_type).replace("{guidelines}", GUIDELINES[test_type])
+        # Create a template with test_type and guidelines already filled in
+        template = f"""You are a test automation expert. Generate a {test_type} test case for this API:
+
+API Definition:
+{{api_definition}}
+
+Similar Test Cases for Reference:
+{{similar_cases}}
+
+Test Guidelines:
+{GUIDELINES[test_type]}
+
+Required fields:
+- name: Clear and descriptive name
+- description: Detailed test description
+- type: "{test_type}"
+- input_data: Dictionary of input parameters
+- expected_output: Dictionary of expected response
+- preconditions: List of preconditions
+- postconditions: List of postconditions
+- tags: List of relevant tags
+
+Additional fields for specific types:
+- For performance tests: Include "performance_metrics" dictionary
+- For exception tests: Include "expected_exception" string
+
+IMPORTANT: Return ONLY a JSON object with these fields. No markdown, no explanations."""
         
         return PromptTemplate(
             input_variables=["api_definition", "similar_cases"],

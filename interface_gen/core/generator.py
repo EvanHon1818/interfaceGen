@@ -5,8 +5,6 @@ import re
 from typing import List, Dict, Any, Optional
 from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
-from langchain_community.callbacks.manager import get_openai_callback
 
 from ..models.api import APIDefinition
 from ..models.test_case import TestCase, TestCaseType
@@ -38,6 +36,17 @@ def extract_json_from_response(response: str) -> dict:
     # Remove any trailing commas before closing braces/brackets
     json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
     
+    # Remove any newlines and extra spaces in property names
+    json_str = re.sub(r'"\s*\n\s*([^"]+)\s*":', r'"\1":', json_str)
+    
+    # Remove any newlines between values
+    json_str = re.sub(r'\s*\n\s*', ' ', json_str)
+    
+    # Fix any missing quotes around property names
+    json_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_str)
+    
+    print(f"Cleaned JSON string: {json_str}")  # Debug output
+    
     try:
         # Parse JSON
         parsed_json = json.loads(json_str)
@@ -59,6 +68,9 @@ def extract_json_from_response(response: str) -> dict:
             
     except json.JSONDecodeError as e:
         print(f"JSON parsing error: {e}")
+        print(f"Error position: {e.pos}")
+        print(f"Error line: {e.lineno}")
+        print(f"Error column: {e.colno}")
         print(f"Problematic JSON string: {json_str}")
         raise
 
@@ -128,16 +140,20 @@ class TestCaseGenerator:
             self.rag.add_test_cases(example_test_cases)
             print(f"Loaded {len(example_test_cases)} example cases into RAG system")
 
-    def _create_chain(self, prompt: PromptTemplate):
-        """Create a chain using the new RunnableSequence approach"""
-        return (
-            RunnablePassthrough.assign(
-                formatted_prompt=lambda x: prompt.format(**x)
-            ) 
-            | {"formatted_prompt": lambda x: x["formatted_prompt"]}
-            | self.llm
-            | (lambda x: x.content)
-        )
+    def _generate_test_case(self, prompt: PromptTemplate, **kwargs) -> str:
+        """Generate a test case using the prompt template"""
+        # Format the prompt template
+        formatted_prompt = prompt.format(**kwargs)
+        
+        # Add a system message to enforce JSON format
+        messages = [
+            {"role": "system", "content": "You are a test case generator that ALWAYS responds with valid JSON objects. Your responses should NEVER include markdown formatting or explanatory text. Always use double quotes for strings and property names."},
+            {"role": "user", "content": formatted_prompt}
+        ]
+        
+        # Generate response
+        response = self.llm.invoke(messages)
+        return response.content
 
     def generate(
         self,
@@ -173,32 +189,31 @@ class TestCaseGenerator:
             formatted_api = TestCasePrompts.format_api_definition(api_definition.model_dump())
             formatted_cases = TestCasePrompts.format_similar_cases(similar_cases)
 
-            # Create chain
-            chain = self._create_chain(prompt)
-
             # Generate multiple test cases
             for _ in range(num_cases_per_type):
-                with get_openai_callback() as cb:
+                result = None
+                try:
                     # Generate test case
-                    result = chain.invoke({
-                        "api_definition": formatted_api,
-                        "similar_cases": formatted_cases
-                    })
+                    result = self._generate_test_case(
+                        prompt,
+                        api_definition=formatted_api,
+                        similar_cases=formatted_cases
+                    )
 
-                    try:
-                        # Parse the result and create TestCase object
-                        test_case_dict = extract_json_from_response(result)
-                        test_case_dict["id"] = str(uuid.uuid4())
-                        test_case = TestCase(**test_case_dict)
-                        all_test_cases.append(test_case)
+                    # Parse the result and create TestCase object
+                    test_case_dict = extract_json_from_response(result)
+                    test_case_dict["id"] = str(uuid.uuid4())
+                    test_case = TestCase(**test_case_dict)
+                    all_test_cases.append(test_case)
 
-                        # Add to RAG for future reference
-                        self.rag.add_test_cases([test_case_dict])
+                    # Add to RAG for future reference
+                    self.rag.add_test_cases([test_case_dict])
 
-                    except Exception as e:
-                        print(f"Error generating test case: {e}")
+                except Exception as e:
+                    print(f"Error generating test case: {e}")
+                    if result:
                         print(f"Raw result: {result[:200]}...")  # Print first 200 chars for debugging
-                        continue
+                    continue
 
         return all_test_cases
 
@@ -235,26 +250,24 @@ class TestCaseGenerator:
             template=prompt.template + "\n\nSpecific Scenario to Test:\n{specific_scenario}"
         )
 
-        # Create chain and generate test case
-        chain = self._create_chain(modified_prompt)
-
         try:
-            with get_openai_callback() as cb:
-                result = chain.invoke({
-                    "api_definition": formatted_api,
-                    "similar_cases": formatted_cases,
-                    "specific_scenario": specific_scenario
-                })
+            # Generate test case
+            result = self._generate_test_case(
+                modified_prompt,
+                api_definition=formatted_api,
+                similar_cases=formatted_cases,
+                specific_scenario=specific_scenario
+            )
 
-                # Parse and create TestCase object
-                test_case_dict = extract_json_from_response(result)
-                test_case_dict["id"] = str(uuid.uuid4())
-                test_case = TestCase(**test_case_dict)
+            # Parse and create TestCase object
+            test_case_dict = extract_json_from_response(result)
+            test_case_dict["id"] = str(uuid.uuid4())
+            test_case = TestCase(**test_case_dict)
 
-                # Add to RAG for future reference
-                self.rag.add_test_cases([test_case_dict])
+            # Add to RAG for future reference
+            self.rag.add_test_cases([test_case_dict])
 
-                return test_case
+            return test_case
 
         except Exception as e:
             print(f"Error generating specific test case: {e}")
