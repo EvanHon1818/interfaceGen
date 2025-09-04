@@ -23,15 +23,15 @@ class TestCaseRAG:
         
         # Configure embeddings based on API type
         if openai_api_type.lower() == "azure":
-            # Use Azure OpenAI Embeddings
+            # For Azure, use standard OpenAI with custom base URL
             config = {
                 "model": azure_deployment or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-                "azure_endpoint": openai_api_base,
-                "api_version": openai_api_version or "2024-02-15-preview",
+                "openai_api_base": openai_api_base,
+                "openai_api_version": openai_api_version or "2024-02-15-preview",
             }
             # Remove None values to avoid parameter conflicts
             config = {k: v for k, v in config.items() if v is not None}
-            self.embeddings = AzureOpenAIEmbeddings(**config)
+            self.embeddings = OpenAIEmbeddings(**config)
         else:
             # Use standard OpenAI Embeddings
             config = {
@@ -58,7 +58,8 @@ class TestCaseRAG:
         if os.path.exists(self.vector_store_path):
             self.vector_store = FAISS.load_local(
                 self.vector_store_path,
-                self.embeddings
+                self.embeddings,
+                allow_dangerous_deserialization=True
             )
         else:
             # Create empty vector store

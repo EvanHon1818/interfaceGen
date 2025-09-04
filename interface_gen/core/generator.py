@@ -1,5 +1,7 @@
 import os
 import uuid
+import json
+import re
 from typing import List, Dict, Any, Optional
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain.chains import LLMChain
@@ -10,6 +12,27 @@ from ..models.api import APIDefinition
 from ..models.test_case import TestCase, TestCaseType
 from .rag import TestCaseRAG
 from .prompts import TestCasePrompts
+
+def extract_json_from_response(response: str) -> dict:
+    """Extract JSON from LLM response that might be wrapped in markdown"""
+    # Try to find JSON in markdown code blocks
+    json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1)
+    else:
+        # Try to find JSON without markdown
+        json_str = response.strip()
+    
+    # Parse JSON
+    parsed_json = json.loads(json_str)
+    
+    # Handle nested TestCase structure
+    if "TestCase" in parsed_json:
+        return parsed_json["TestCase"]
+    elif "testCase" in parsed_json:
+        return parsed_json["testCase"]
+    else:
+        return parsed_json
 
 class TestCaseGenerator:
     """Core class for generating test cases"""
@@ -25,16 +48,16 @@ class TestCaseGenerator:
         
         # Configure ChatOpenAI based on API type
         if openai_api_type.lower() == "azure":
-            # Use Azure ChatOpenAI
+            # For Azure, use standard ChatOpenAI with custom base URL
             config = {
-                "deployment_name": azure_deployment or os.getenv("MODEL_NAME", "gpt-4"),
-                "azure_endpoint": openai_api_base,
-                "api_version": openai_api_version or "2024-02-15-preview",
+                "model_name": azure_deployment or os.getenv("MODEL_NAME", "gpt-4"),
+                "openai_api_base": openai_api_base,
+                "openai_api_version": openai_api_version or "2024-02-15-preview",
                 "temperature": 0.7
             }
             # Remove None values to avoid parameter conflicts
             config = {k: v for k, v in config.items() if v is not None}
-            self.llm = AzureChatOpenAI(**config)
+            self.llm = ChatOpenAI(**config)
         else:
             # Use standard ChatOpenAI
             config = {
@@ -78,7 +101,7 @@ class TestCaseGenerator:
             prompt = TestCasePrompts.get_prompt(test_type)
             
             # Format API definition and similar cases
-            formatted_api = TestCasePrompts.format_api_definition(api_definition.dict())
+            formatted_api = TestCasePrompts.format_api_definition(api_definition.model_dump())
             formatted_cases = TestCasePrompts.format_similar_cases(similar_cases)
 
             # Create chain
@@ -95,7 +118,7 @@ class TestCaseGenerator:
 
                     try:
                         # Parse the result and create TestCase object
-                        test_case_dict = eval(result)  # Safe since we control the input
+                        test_case_dict = extract_json_from_response(result)
                         test_case_dict["id"] = str(uuid.uuid4())
                         test_case = TestCase(**test_case_dict)
                         all_test_cases.append(test_case)
@@ -105,6 +128,7 @@ class TestCaseGenerator:
 
                     except Exception as e:
                         print(f"Error generating test case: {e}")
+                        print(f"Raw result: {result[:200]}...")  # Print first 200 chars for debugging
                         continue
 
         return all_test_cases
@@ -130,7 +154,7 @@ class TestCaseGenerator:
 
         # Create and format prompt
         prompt = TestCasePrompts.get_prompt(test_type)
-        formatted_api = TestCasePrompts.format_api_definition(api_definition.dict())
+        formatted_api = TestCasePrompts.format_api_definition(api_definition.model_dump())
         formatted_cases = TestCasePrompts.format_similar_cases(similar_cases)
 
         # Add specific scenario to prompt
@@ -151,7 +175,7 @@ class TestCaseGenerator:
                 )
 
                 # Parse and create TestCase object
-                test_case_dict = eval(result)
+                test_case_dict = extract_json_from_response(result)
                 test_case_dict["id"] = str(uuid.uuid4())
                 test_case = TestCase(**test_case_dict)
 

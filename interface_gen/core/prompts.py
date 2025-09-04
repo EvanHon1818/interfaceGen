@@ -13,14 +13,23 @@ Similar Test Cases for Reference:
 Generate a {test_type} test case that follows these guidelines:
 {guidelines}
 
-The test case should be detailed and include:
-1. A clear name and description
-2. Input data
-3. Expected output
-4. Pre and post conditions
-5. Any relevant tags
+The test case should be detailed and include ALL of the following required fields:
+1. name: A clear and descriptive name
+2. description: Detailed description of what the test verifies
+3. type: The test type (must be one of: "functional", "performance", "boundary", "exception")
+4. input_data: Dictionary containing the input parameters
+5. expected_output: Dictionary containing the expected response
+6. preconditions: List of required preconditions (can be empty list)
+7. postconditions: List of expected postconditions (can be empty list)
+8. tags: List of relevant tags (can be empty list)
 
-Format the response as a JSON object matching the TestCase model structure."""
+For performance tests, also include:
+- performance_metrics: Dictionary with expected metrics (example: response_time_ms: 500, throughput_rps: 100)
+
+For exception tests, also include:
+- expected_exception: String describing the expected exception type
+
+Format the response as a JSON object with these exact field names. Do not wrap in any additional structure."""
 
 # Guidelines for different test types
 GUIDELINES = {
@@ -65,12 +74,12 @@ class TestCasePrompts:
         if test_type not in GUIDELINES:
             raise ValueError(f"Unknown test type: {test_type}")
 
+        # Create the template with placeholders for all variables
+        template = BASE_TEMPLATE.replace("{test_type}", test_type).replace("{guidelines}", GUIDELINES[test_type])
+        
         return PromptTemplate(
             input_variables=["api_definition", "similar_cases"],
-            template=BASE_TEMPLATE.format(
-                test_type=test_type,
-                guidelines=GUIDELINES[test_type]
-            )
+            template=template
         )
 
     @staticmethod

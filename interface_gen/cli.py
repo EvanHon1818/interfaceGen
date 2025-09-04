@@ -20,7 +20,7 @@ def save_test_cases(test_cases: list, output_file: str):
     
     with open(output_file, 'w') as f:
         json.dump(
-            [tc.dict() for tc in test_cases],
+            [tc.model_dump() for tc in test_cases],
             f,
             indent=2
         )
@@ -100,7 +100,10 @@ def main():
             print(f"Generated {len(test_cases)} test cases and saved to {args.output}")
 
     except Exception as e:
+        import traceback
         print(f"Error: {e}")
+        print("Full traceback:")
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
