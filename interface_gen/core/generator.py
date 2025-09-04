@@ -73,6 +73,33 @@ class TestCaseGenerator:
 
             self.llm = ChatOpenAI(**config)
 
+    def _load_example_cases_to_rag(self, api_definition: APIDefinition):
+        """Load example cases from API definition into RAG system"""
+        if not api_definition.example_cases:
+            return
+        
+        example_test_cases = []
+        for case_name, case_data in api_definition.example_cases.items():
+            # Convert example case to test case format
+            test_case = {
+                "id": f"example_{case_name}",
+                "name": f"Example: {case_name}",
+                "description": f"Example test case from API definition: {case_name}",
+                "type": "functional",  # Default type for examples
+                "input_data": case_data.get("input", {}),
+                "expected_output": case_data.get("output", {}),
+                "preconditions": [],
+                "postconditions": [],
+                "tags": ["example", "api_definition"],
+                "api_name": api_definition.name
+            }
+            example_test_cases.append(test_case)
+        
+        # Add example cases to RAG
+        if example_test_cases:
+            self.rag.add_test_cases(example_test_cases)
+            print(f"Loaded {len(example_test_cases)} example cases into RAG system")
+
     def generate(
         self,
         api_definition: APIDefinition,
@@ -82,6 +109,9 @@ class TestCaseGenerator:
         """Generate test cases for the given API definition"""
         if test_types is None:
             test_types = [t.value for t in TestCaseType]
+
+        # Load example cases from API definition into RAG
+        self._load_example_cases_to_rag(api_definition)
 
         all_test_cases = []
         
@@ -140,6 +170,9 @@ class TestCaseGenerator:
         specific_scenario: str
     ) -> Optional[TestCase]:
         """Generate a specific test case based on a scenario"""
+        # Load example cases from API definition into RAG
+        self._load_example_cases_to_rag(api_definition)
+        
         # Adjust temperature based on test type
         temperature = float(os.getenv(f"TEMPERATURE_{test_type.upper()}", 0.7))
         self.llm.temperature = temperature
