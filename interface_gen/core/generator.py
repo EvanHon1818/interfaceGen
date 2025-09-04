@@ -3,10 +3,10 @@ import uuid
 import json
 import re
 from typing import List, Dict, Any, Optional
-from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain.chains import LLMChain
-from langchain_community.callbacks.manager import get_openai_callback
+from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_community.callbacks.manager import get_openai_callback
 
 from ..models.api import APIDefinition
 from ..models.test_case import TestCase, TestCaseType
@@ -15,31 +15,52 @@ from .prompts import TestCasePrompts
 
 def extract_json_from_response(response: str) -> dict:
     """Extract JSON from LLM response that might be wrapped in markdown"""
+    # Clean up the response
+    response = response.strip()
+    
     # Try to find JSON in markdown code blocks
-    json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response, re.DOTALL)
     if json_match:
         json_str = json_match.group(1)
     else:
-        # Try to find JSON without markdown
-        json_str = response.strip()
-    
-    # Parse JSON
-    parsed_json = json.loads(json_str)
-    
-    # Handle case where LLM returns an array instead of single object
-    if isinstance(parsed_json, list):
-        if len(parsed_json) > 0:
-            parsed_json = parsed_json[0]  # Take the first item
+        # If no code block found, try to find JSON directly
+        # Look for the first '{' and last '}'
+        start = response.find('{')
+        end = response.rfind('}')
+        if start != -1 and end != -1:
+            json_str = response[start:end+1]
         else:
-            raise ValueError("Empty JSON array returned")
+            json_str = response
     
-    # Handle nested TestCase structure
-    if "TestCase" in parsed_json:
-        return parsed_json["TestCase"]
-    elif "testCase" in parsed_json:
-        return parsed_json["testCase"]
-    else:
-        return parsed_json
+    # Clean up the JSON string
+    json_str = json_str.strip()
+    
+    # Remove any trailing commas before closing braces/brackets
+    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+    
+    try:
+        # Parse JSON
+        parsed_json = json.loads(json_str)
+        
+        # Handle case where LLM returns an array instead of single object
+        if isinstance(parsed_json, list):
+            if len(parsed_json) > 0:
+                parsed_json = parsed_json[0]  # Take the first item
+            else:
+                raise ValueError("Empty JSON array returned")
+        
+        # Handle nested TestCase structure
+        if "TestCase" in parsed_json:
+            return parsed_json["TestCase"]
+        elif "testCase" in parsed_json:
+            return parsed_json["testCase"]
+        else:
+            return parsed_json
+            
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error: {e}")
+        print(f"Problematic JSON string: {json_str}")
+        raise
 
 class TestCaseGenerator:
     """Core class for generating test cases"""
@@ -107,6 +128,17 @@ class TestCaseGenerator:
             self.rag.add_test_cases(example_test_cases)
             print(f"Loaded {len(example_test_cases)} example cases into RAG system")
 
+    def _create_chain(self, prompt: PromptTemplate):
+        """Create a chain using the new RunnableSequence approach"""
+        return (
+            RunnablePassthrough.assign(
+                formatted_prompt=lambda x: prompt.format(**x)
+            ) 
+            | {"formatted_prompt": lambda x: x["formatted_prompt"]}
+            | self.llm
+            | (lambda x: x.content)
+        )
+
     def generate(
         self,
         api_definition: APIDefinition,
@@ -142,16 +174,16 @@ class TestCaseGenerator:
             formatted_cases = TestCasePrompts.format_similar_cases(similar_cases)
 
             # Create chain
-            chain = LLMChain(llm=self.llm, prompt=prompt)
+            chain = self._create_chain(prompt)
 
             # Generate multiple test cases
             for _ in range(num_cases_per_type):
                 with get_openai_callback() as cb:
                     # Generate test case
-                    result = chain.run(
-                        api_definition=formatted_api,
-                        similar_cases=formatted_cases
-                    )
+                    result = chain.invoke({
+                        "api_definition": formatted_api,
+                        "similar_cases": formatted_cases
+                    })
 
                     try:
                         # Parse the result and create TestCase object
@@ -204,15 +236,15 @@ class TestCaseGenerator:
         )
 
         # Create chain and generate test case
-        chain = LLMChain(llm=self.llm, prompt=modified_prompt)
+        chain = self._create_chain(modified_prompt)
 
         try:
             with get_openai_callback() as cb:
-                result = chain.run(
-                    api_definition=formatted_api,
-                    similar_cases=formatted_cases,
-                    specific_scenario=specific_scenario
-                )
+                result = chain.invoke({
+                    "api_definition": formatted_api,
+                    "similar_cases": formatted_cases,
+                    "specific_scenario": specific_scenario
+                })
 
                 # Parse and create TestCase object
                 test_case_dict = extract_json_from_response(result)
@@ -226,4 +258,5 @@ class TestCaseGenerator:
 
         except Exception as e:
             print(f"Error generating specific test case: {e}")
+            print(f"Raw result: {result[:200]}...")  # Print first 200 chars for debugging
             return None 

@@ -36,8 +36,26 @@ For exception tests, also include:
 - expected_exception: String describing the expected exception type
 
 Make sure each test case covers a DIFFERENT scenario or aspect to ensure comprehensive coverage.
-Format the response as a JSON object with these exact field names. Do not wrap in any additional structure.
-IMPORTANT: Return only ONE test case as a single JSON object, NOT an array of test cases."""
+
+RESPONSE FORMAT REQUIREMENTS:
+1. Return a single JSON object (not an array)
+2. Use double quotes for all strings and property names
+3. Do not include trailing commas
+4. Do not include any markdown formatting
+5. Ensure all JSON values are properly formatted (strings in quotes, numbers without quotes)
+6. Do not include any explanatory text outside the JSON object
+
+Example format:
+{
+    "name": "Test Name",
+    "description": "Test Description",
+    "type": "functional",
+    "input_data": {},
+    "expected_output": {},
+    "preconditions": [],
+    "postconditions": [],
+    "tags": []
+}"""
 
 # Guidelines for different test types
 GUIDELINES = {
