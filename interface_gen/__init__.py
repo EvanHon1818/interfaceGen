@@ -17,7 +17,7 @@ from .exceptions import (
 )
 from .utils.logger import setup_logger
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # Set up root logger
 logger = setup_logger(__name__)
