@@ -1,275 +1,335 @@
-import os
-import uuid
 import json
-import re
-from typing import List, Dict, Any, Optional
+import uuid
+from typing import List, Optional, Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain.prompts import PromptTemplate
 
 from ..models.api import APIDefinition
-from ..models.test_case import TestCase, TestCaseType
+from ..models.test_case import TestCase
+from .prompts import test_case_prompt, SYSTEM_MESSAGE, GUIDELINES
 from .rag import TestCaseRAG
-from .prompts import TestCasePrompts
+from ..config import config
+from ..utils.logger import setup_logger
 
-def extract_json_from_response(response: str) -> dict:
-    """Extract JSON from LLM response that might be wrapped in markdown"""
-    # Clean up the response
-    response = response.strip()
-    
-    # Try to find JSON in markdown code blocks
-    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response, re.DOTALL)
-    if json_match:
-        json_str = json_match.group(1)
-    else:
-        # If no code block found, try to find JSON directly
-        # Look for the first '{' and last '}'
-        start = response.find('{')
-        end = response.rfind('}')
-        if start != -1 and end != -1:
-            json_str = response[start:end+1]
-        else:
-            json_str = response
-    
-    # Clean up the JSON string
-    json_str = json_str.strip()
-    
-    # Remove any trailing commas before closing braces/brackets
-    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-    
-    # Remove any newlines and extra spaces in property names
-    json_str = re.sub(r'"\s*\n\s*([^"]+)\s*":', r'"\1":', json_str)
-    
-    # Remove any newlines between values
-    json_str = re.sub(r'\s*\n\s*', ' ', json_str)
-    
-    # Fix any missing quotes around property names
-    json_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_str)
-    
-    print(f"Cleaned JSON string: {json_str}")  # Debug output
-    
-    try:
-        # Parse JSON
-        parsed_json = json.loads(json_str)
-        
-        # Handle case where LLM returns an array instead of single object
-        if isinstance(parsed_json, list):
-            if len(parsed_json) > 0:
-                parsed_json = parsed_json[0]  # Take the first item
-            else:
-                raise ValueError("Empty JSON array returned")
-        
-        # Handle nested TestCase structure
-        if "TestCase" in parsed_json:
-            return parsed_json["TestCase"]
-        elif "testCase" in parsed_json:
-            return parsed_json["testCase"]
-        else:
-            return parsed_json
-            
-    except json.JSONDecodeError as e:
-        print(f"JSON parsing error: {e}")
-        print(f"Error position: {e.pos}")
-        print(f"Error line: {e.lineno}")
-        print(f"Error column: {e.colno}")
-        print(f"Problematic JSON string: {json_str}")
-        raise
+logger = setup_logger(__name__)
 
 class TestCaseGenerator:
     """Core class for generating test cases"""
 
     def __init__(self):
         """Initialize the test case generator"""
-        self.rag = TestCaseRAG()
-        # Get OpenAI API configuration
-        openai_api_base = os.getenv("OPENAI_API_BASE")
-        openai_api_version = os.getenv("OPENAI_API_VERSION")
-        openai_api_type = os.getenv("OPENAI_API_TYPE", "open_ai")
-        azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        logger.info("Initializing TestCaseGenerator")
+        # Configure ChatOpenAI
+        openai_config = config.openai.get_llm_config()
+        logger.debug(f"OpenAI config: {openai_config}")
+        self.llm = ChatOpenAI(**openai_config)
         
-        # Configure ChatOpenAI based on API type
-        if openai_api_type.lower() == "azure":
-            # For Azure, use standard ChatOpenAI with custom base URL
-            config = {
-                "model_name": azure_deployment or os.getenv("MODEL_NAME", "gpt-4"),
-                "openai_api_base": openai_api_base,
-                "openai_api_version": openai_api_version or "2024-02-15-preview",
-                "temperature": 0.7
-            }
-            # Remove None values to avoid parameter conflicts
-            config = {k: v for k, v in config.items() if v is not None}
-            self.llm = ChatOpenAI(**config)
+        # Initialize RAG system
+        logger.info("Initializing RAG system")
+        self.rag = TestCaseRAG()
+
+    def _get_similar_cases(self, api_name: str, test_type: str) -> List[Dict[str, Any]]:
+        """Get similar test cases using RAG"""
+        logger.info(f"Searching for similar {test_type} test cases for API {api_name}")
+        try:
+            similar_cases = self.rag.get_test_cases_by_type(
+                test_type=test_type,
+                api_name=api_name,
+                k=3  # Get top 3 similar cases
+            )
+            logger.debug(f"Found {len(similar_cases)} similar cases")
+            return similar_cases
+        except Exception as e:
+            logger.warning(f"Failed to get similar cases: {str(e)}")
+            return []
+
+    def _sanitize_json_string(self, s: str) -> str:
+        """Sanitize a JSON string to ensure it's valid"""
+        # Remove any invalid escape sequences
+        s = s.replace("\\'", "'")  # Replace escaped single quotes
+        s = s.replace('\\"', '"')  # Replace escaped double quotes
+        s = s.replace('\\\\', '\\')  # Replace double backslashes
+        
+        # Handle any remaining backslashes
+        chars = []
+        i = 0
+        while i < len(s):
+            if s[i] == '\\':
+                if i + 1 < len(s) and s[i + 1] in 'bfnrt/':
+                    # Valid escape sequence
+                    chars.append(s[i:i + 2])
+                    i += 2
+                else:
+                    # Invalid escape sequence, skip the backslash
+                    i += 1
+            else:
+                chars.append(s[i])
+                i += 1
+        
+        return ''.join(chars)
+
+    def _sanitize_test_case(self, test_case: Dict[str, Any], api_name: str, test_type: str) -> Dict[str, Any]:
+        """Sanitize test case data to ensure proper format"""
+        logger.debug(f"Sanitizing test case: {json.dumps(test_case, indent=2)}")
+        
+        # Ensure required fields exist
+        required_fields = ["id", "name", "param", "headers", "rule"]
+        for field in required_fields:
+            if field not in test_case:
+                logger.error(f"Missing required field: {field}")
+                raise ValueError(f"Missing required field: {field}")
+
+        # Add metadata
+        test_case["api_name"] = api_name
+        test_case["type"] = test_type
+
+        # Ensure param is a JSON string
+        if not isinstance(test_case["param"], str):
+            logger.debug(f"Converting param to JSON string: {test_case['param']}")
+            test_case["param"] = json.dumps(test_case["param"], ensure_ascii=False)
         else:
-            # Use standard ChatOpenAI
-            config = {
-                "model_name": os.getenv("MODEL_NAME", "gpt-4-turbo-preview"),
-                "temperature": 0.7
+            test_case["param"] = self._sanitize_json_string(test_case["param"])
+
+        # Ensure rule is a JSON string
+        if not isinstance(test_case["rule"], str):
+            logger.debug(f"Converting rule to JSON string: {test_case['rule']}")
+            test_case["rule"] = json.dumps(test_case["rule"], ensure_ascii=False)
+        else:
+            test_case["rule"] = self._sanitize_json_string(test_case["rule"])
+
+        # Force headers to be the correct format
+        test_case["headers"] = {"Content-Type": "application/json"}
+        logger.debug(f"After sanitization: {json.dumps(test_case, indent=2)}")
+        return test_case
+
+    def _fix_json_string(self, json_str: str) -> str:
+        """Fix common JSON formatting issues in LLM responses"""
+        import re
+        
+        # Remove any markdown code blocks
+        json_str = re.sub(r'```json\s*', '', json_str)
+        json_str = re.sub(r'```\s*$', '', json_str)
+        
+        # Remove any leading/trailing whitespace and newlines
+        json_str = json_str.strip()
+        
+        # Find the actual JSON object
+        start = json_str.find('{')
+        end = json_str.rfind('}')
+        if start != -1 and end != -1:
+            json_str = json_str[start:end + 1]
+        
+        # Replace single quotes with double quotes (but be careful with nested quotes)
+        json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)  # Keys
+        json_str = re.sub(r":\s*'([^']*)'", r': "\1"', json_str)  # String values
+        
+        # Fix common formatting issues
+        json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas before }
+        json_str = re.sub(r',\s*]', ']', json_str)  # Remove trailing commas before ]
+        
+        # Fix missing commas between objects/arrays
+        json_str = re.sub(r'}\s*{', '}, {', json_str)
+        json_str = re.sub(r']\s*{', '], {', json_str)
+        json_str = re.sub(r'}\s*"', '}, "', json_str)
+        json_str = re.sub(r']\s*"', '], "', json_str)
+        
+        # Fix unescaped quotes in string values
+        # This is tricky - we need to escape quotes that are inside string values
+        # but not the quotes that delimit the strings themselves
+        
+        return json_str
+
+    def _extract_json_from_text(self, text: str) -> Dict[str, Any]:
+        """Extract JSON object from text that might contain other content"""
+        logger.debug(f"Extracting JSON from text: {text}")
+        
+        try:
+            # First, try to fix the JSON string
+            json_str = self._fix_json_string(text)
+            logger.debug(f"Fixed JSON string: {json_str}")
+            
+            # Try to parse the JSON
+            return json.loads(json_str)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parse error: {str(e)}")
+            
+            # If parsing fails, try to create a minimal valid test case
+            logger.warning("Creating fallback test case due to JSON parsing error")
+            
+            # Extract basic information if possible
+            import re
+            
+            # Try to extract name
+            name_match = re.search(r'"name"\s*:\s*"([^"]*)"', text)
+            name = name_match.group(1) if name_match else "Generated Test Case"
+            
+            # Try to extract id
+            id_match = re.search(r'"id"\s*:\s*"([^"]*)"', text)
+            test_id = id_match.group(1) if id_match else str(uuid.uuid4())
+            
+            # Create a basic fallback test case
+            fallback_case = {
+                "id": test_id,
+                "name": name,
+                "param": "{}",
+                "headers": {"Content-Type": "application/json"},
+                "rule": json.dumps({
+                    "rules": [
+                        {
+                            "matchType": "equal",
+                            "dataPath": "result",
+                            "columns": {
+                                "result": 0
+                            }
+                        }
+                    ]
+                })
             }
             
-            # Add custom API configuration if provided
-            if openai_api_base:
-                config["openai_api_base"] = openai_api_base
-            if openai_api_version:
-                config["openai_api_version"] = openai_api_version
+            logger.debug(f"Created fallback test case: {json.dumps(fallback_case, indent=2)}")
+            return fallback_case
+            
+        except Exception as e:
+            logger.error(f"Failed to extract JSON: {str(e)}")
+            raise ValueError(f"Could not extract valid JSON from response: {str(e)}")
 
-            self.llm = ChatOpenAI(**config)
-
-    def _load_example_cases_to_rag(self, api_definition: APIDefinition):
-        """Load example cases from API definition into RAG system"""
-        if not api_definition.example_cases:
-            return
+    def _generate_test_case(self, api_definition: dict, test_type: str, similar_cases: List[dict] = None) -> TestCase:
+        """Generate a single test case using the prompt template"""
+        logger.info(f"Generating {test_type} test case")
         
-        example_test_cases = []
-        for case_name, case_data in api_definition.example_cases.items():
-            # Convert example case to test case format
-            test_case = {
-                "id": f"example_{case_name}",
-                "name": f"Example: {case_name}",
-                "description": f"Example test case from API definition: {case_name}",
-                "type": "functional",  # Default type for examples
-                "input_data": case_data.get("input", {}),
-                "expected_output": case_data.get("output", {}),
-                "preconditions": [],
-                "postconditions": [],
-                "tags": ["example", "api_definition"],
-                "api_name": api_definition.name
-            }
-            example_test_cases.append(test_case)
+        # Get similar cases from RAG if not provided
+        if similar_cases is None:
+            similar_cases = self._get_similar_cases(api_definition["name"], test_type)
         
-        # Add example cases to RAG
-        if example_test_cases:
-            self.rag.add_test_cases(example_test_cases)
-            print(f"Loaded {len(example_test_cases)} example cases into RAG system")
-
-    def _generate_test_case(self, prompt: PromptTemplate, **kwargs) -> str:
-        """Generate a test case using the prompt template"""
-        # Format the prompt template
-        formatted_prompt = prompt.format(**kwargs)
+        # Format similar cases
+        formatted_cases = json.dumps(similar_cases, indent=2) if similar_cases else "[]"
+        logger.debug(f"Using {len(similar_cases) if similar_cases else 0} similar cases for reference")
         
-        # Add a system message to enforce JSON format
+        # Format the prompt
+        formatted_prompt = test_case_prompt.format(
+            api_definition=json.dumps(api_definition, indent=2, ensure_ascii=False),
+            similar_cases=formatted_cases,
+            test_type=test_type,
+            guidelines=GUIDELINES[test_type]
+        )
+        logger.debug(f"Formatted prompt: {formatted_prompt}")
+        
+        # Generate response
         messages = [
-            {"role": "system", "content": "You are a test case generator that ALWAYS responds with valid JSON objects. Your responses should NEVER include markdown formatting or explanatory text. Always use double quotes for strings and property names."},
+            {"role": "system", "content": SYSTEM_MESSAGE},
             {"role": "user", "content": formatted_prompt}
         ]
         
-        # Generate response
-        response = self.llm.invoke(messages)
-        return response.content
+        try:
+            response = self.llm.invoke(messages)
+            logger.debug(f"Raw LLM Response: {response.content}")
+            
+            # Extract and parse JSON from response
+            test_case = self._extract_json_from_text(response.content)
+            logger.debug(f"Parsed test case: {json.dumps(test_case, indent=2)}")
+            
+            # Sanitize and validate the test case
+            test_case = self._sanitize_test_case(test_case, api_definition["name"], test_type)
+            
+            # Validate rule format
+            try:
+                rules = json.loads(test_case["rule"]) if isinstance(test_case["rule"], str) else test_case["rule"]
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse rule JSON: {str(e)}")
+                logger.debug(f"Rule content: {test_case['rule']}")
+                # Create a default rule if parsing fails
+                rules = {
+                    "rules": [
+                        {
+                            "matchType": "equal",
+                            "dataPath": "result",
+                            "columns": {
+                                "result": 0
+                            }
+                        }
+                    ]
+                }
+                test_case["rule"] = json.dumps(rules)
+                
+            if "rules" not in rules or not isinstance(rules["rules"], list):
+                logger.error("Invalid rule format: missing or invalid 'rules' array")
+                # Create a default rule
+                rules = {
+                    "rules": [
+                        {
+                            "matchType": "equal",
+                            "dataPath": "result",
+                            "columns": {
+                                "result": 0
+                            }
+                        }
+                    ]
+                }
+                test_case["rule"] = json.dumps(rules)
+            
+            # Validate each rule
+            for i, rule in enumerate(rules["rules"]):
+                try:
+                    if "matchType" not in rule or rule["matchType"] not in ["top", "equal", "min", "max", "pos", "not_in"]:
+                        logger.warning(f"Invalid matchType in rule {i}: {rule.get('matchType')}")
+                        # Fix the rule
+                        rule["matchType"] = "equal"
+                    if rule["matchType"] in ["top", "pos", "not_in"] and "index" not in rule:
+                        logger.warning(f"Missing index for matchType {rule['matchType']} in rule {i}")
+                        rule["index"] = "1"
+                    if "dataPath" not in rule:
+                        logger.warning(f"Missing dataPath in rule {i}")
+                        rule["dataPath"] = "result"
+                    if "columns" not in rule:
+                        logger.warning(f"Missing columns in rule {i}")
+                        rule["columns"] = {"result": 0}
+                except Exception as e:
+                    logger.warning(f"Error validating rule {i}: {str(e)}")
+                    # Replace with a default rule
+                    rules["rules"][i] = {
+                        "matchType": "equal",
+                        "dataPath": "result",
+                        "columns": {"result": 0}
+                    }
+            
+            # Update the rule in test_case
+            test_case["rule"] = json.dumps(rules)
+            
+            # Create test case object
+            test_case_obj = TestCase(**test_case)
+            logger.debug(f"Created TestCase object: {test_case_obj}")
+            
+            # Add to RAG system
+            try:
+                self.rag.add_test_cases([test_case])
+                logger.debug("Added test case to RAG system")
+            except Exception as e:
+                logger.warning(f"Failed to add test case to RAG: {str(e)}")
+            
+            return test_case_obj
+            
+        except Exception as e:
+            logger.error(f"Error in _generate_test_case: {str(e)}", exc_info=True)
+            raise ValueError(f"Failed to generate test case: {str(e)}")
 
-    def generate(
-        self,
-        api_definition: APIDefinition,
-        test_types: Optional[List[str]] = None,
-        num_cases_per_type: int = 5
-    ) -> List[TestCase]:
-        """Generate test cases for the given API definition"""
-        if test_types is None:
-            test_types = [t.value for t in TestCaseType]
-
-        # Load example cases from API definition into RAG
-        self._load_example_cases_to_rag(api_definition)
-
-        all_test_cases = []
+    def generate_test_cases(self, api_definition: APIDefinition, test_types: List[str], num_cases: int = 5) -> List[TestCase]:
+        """Generate multiple test cases for the given API definition"""
+        logger.info(f"Generating {num_cases} test cases for each type in {test_types}")
+        test_cases = []
         
         for test_type in test_types:
-            # Get temperature based on test type
-            temperature = float(os.getenv(f"TEMPERATURE_{test_type.upper()}", 0.7))
-            self.llm.temperature = temperature
-
-            # Get similar cases from RAG
-            similar_cases = self.rag.get_test_cases_by_type(
-                test_type=test_type,
-                api_name=api_definition.name,
-                k=3
-            )
-
-            # Create prompt
-            prompt = TestCasePrompts.get_prompt(test_type)
+            if test_type not in GUIDELINES:
+                logger.error(f"Unknown test type: {test_type}")
+                raise ValueError(f"Unknown test type: {test_type}")
             
-            # Format API definition and similar cases
-            formatted_api = TestCasePrompts.format_api_definition(api_definition.model_dump())
-            formatted_cases = TestCasePrompts.format_similar_cases(similar_cases)
-
-            # Generate multiple test cases
-            for _ in range(num_cases_per_type):
-                result = None
-                try:
-                    # Generate test case
-                    result = self._generate_test_case(
-                        prompt,
-                        api_definition=formatted_api,
-                        similar_cases=formatted_cases
-                    )
-
-                    # Parse the result and create TestCase object
-                    test_case_dict = extract_json_from_response(result)
-                    test_case_dict["id"] = str(uuid.uuid4())
-                    test_case = TestCase(**test_case_dict)
-                    all_test_cases.append(test_case)
-
-                    # Add to RAG for future reference
-                    self.rag.add_test_cases([test_case_dict])
-
-                except Exception as e:
-                    print(f"Error generating test case: {e}")
-                    if result:
-                        print(f"Raw result: {result[:200]}...")  # Print first 200 chars for debugging
-                    continue
-
-        return all_test_cases
-
-    def generate_specific_test_case(
-        self,
-        api_definition: APIDefinition,
-        test_type: str,
-        specific_scenario: str
-    ) -> Optional[TestCase]:
-        """Generate a specific test case based on a scenario"""
-        # Load example cases from API definition into RAG
-        self._load_example_cases_to_rag(api_definition)
+            for i in range(num_cases):
+                logger.info(f"Generating test case {i+1} of {num_cases} for type {test_type}")
+                test_case = self._generate_test_case(
+                    api_definition.dict(),
+                    test_type=test_type,
+                    similar_cases=[tc.dict() for tc in test_cases]  # Pass previously generated cases as reference
+                )
+                test_cases.append(test_case)
         
-        # Adjust temperature based on test type
-        temperature = float(os.getenv(f"TEMPERATURE_{test_type.upper()}", 0.7))
-        self.llm.temperature = temperature
-
-        # Get similar cases that might be relevant
-        similar_cases = self.rag.search_similar_cases(
-            query=specific_scenario,
-            api_name=api_definition.name,
-            test_type=test_type,
-            k=3
-        )
-
-        # Create and format prompt
-        prompt = TestCasePrompts.get_prompt(test_type)
-        formatted_api = TestCasePrompts.format_api_definition(api_definition.model_dump())
-        formatted_cases = TestCasePrompts.format_similar_cases(similar_cases)
-
-        # Add specific scenario to prompt
-        modified_prompt = PromptTemplate(
-            input_variables=["api_definition", "similar_cases", "specific_scenario"],
-            template=prompt.template + "\n\nSpecific Scenario to Test:\n{specific_scenario}"
-        )
-
-        try:
-            # Generate test case
-            result = self._generate_test_case(
-                modified_prompt,
-                api_definition=formatted_api,
-                similar_cases=formatted_cases,
-                specific_scenario=specific_scenario
-            )
-
-            # Parse and create TestCase object
-            test_case_dict = extract_json_from_response(result)
-            test_case_dict["id"] = str(uuid.uuid4())
-            test_case = TestCase(**test_case_dict)
-
-            # Add to RAG for future reference
-            self.rag.add_test_cases([test_case_dict])
-
-            return test_case
-
-        except Exception as e:
-            print(f"Error generating specific test case: {e}")
-            print(f"Raw result: {result[:200]}...")  # Print first 200 chars for debugging
-            return None 
+        logger.info(f"Generated {len(test_cases)} test cases in total")
+        return test_cases 

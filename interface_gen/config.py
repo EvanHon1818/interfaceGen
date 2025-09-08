@@ -22,19 +22,21 @@ class OpenAIConfig:
                 "model_name": self.azure_deployment or self.model_name,
                 "openai_api_base": self.api_base,
                 "openai_api_version": self.api_version,
-                "temperature": 0.7
+                "temperature": 0.7,
+                "openai_api_key": self.api_key
             }
         else:
             config = {
                 "model_name": self.model_name,
-                "temperature": 0.7
+                "temperature": 0.7,
+                "openai_api_key": self.api_key
             }
             if self.api_base:
                 config["openai_api_base"] = self.api_base
             if self.api_version:
                 config["openai_api_version"] = self.api_version
         
-        return {k: v for k, v in config.items() if v is not None}
+        return {k: v for k, v in config.items() if v is not None and v != ""}
 
     def get_embedding_config(self) -> Dict[str, Any]:
         """Get embedding configuration."""
@@ -43,17 +45,19 @@ class OpenAIConfig:
                 "azure_deployment": self.azure_deployment or self.embedding_model,
                 "azure_endpoint": self.api_base,
                 "api_version": self.api_version or "2024-02-15-preview",
+                "openai_api_key": self.api_key
             }
         else:
             config = {
                 "model": self.embedding_model,
+                "openai_api_key": self.api_key
             }
             if self.api_base:
                 config["openai_api_base"] = self.api_base
             if self.api_version:
                 config["openai_api_version"] = self.api_version
         
-        return {k: v for k, v in config.items() if v is not None}
+        return {k: v for k, v in config.items() if v is not None and v != ""}
 
 @dataclass
 class RAGConfig:

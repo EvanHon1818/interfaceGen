@@ -1,5 +1,6 @@
 from langchain.prompts import PromptTemplate
 from typing import Dict, Any
+import uuid
 
 # Base template for all test case types
 BASE_TEMPLATE = """You are a test automation expert. Generate a {test_type} test case for this API:
@@ -13,158 +14,106 @@ Similar Test Cases for Reference:
 Guidelines:
 {guidelines}
 
-Required fields:
-- name: Clear and descriptive name
-- description: Detailed test description
-- type: "{test_type}"
-- input_data: Dictionary of input parameters
-- expected_output: Dictionary of expected response
-- preconditions: List of preconditions
-- postconditions: List of postconditions
-- tags: List of relevant tags
+Required fields in the output JSON:
+- id: A unique test case ID (UUID format)
+- name: Clear and descriptive test case name
+- param: JSON string containing input parameters
+- headers: Always use the default Content-Type header for JSON
+- rule: JSON string containing assertion rules, following this structure:
+    {{
+        "rules": [
+            {{
+                "matchType": one of ["top", "equal", "min", "max", "pos", "not_in"],
+                "index": required for "top", "pos", "not_in" types, represents N,
+                "dataPath": path to the field in response to match against,
+                "columns": key-value pairs to match in the response
+            }}
+        ]
+    }}
 
-Additional fields for specific types:
-- For performance tests: Include "performance_metrics" dictionary
-- For exception tests: Include "expected_exception" string
+matchType explanation:
+- top: Match in Top N results
+- equal: Exact match
+- min: Minimum value
+- max: Maximum value
+- pos: Match at position N
+- not_in: Must not appear in first N positions
 
-IMPORTANT: Return ONLY a JSON object with these fields. No markdown, no explanations."""
+Example assertion rule:
+{{
+    "rules": [
+        {{
+            "matchType": "top",
+            "index": "10",
+            "dataPath": "data",
+            "columns": {{
+                "name": "example",
+                "id": 123
+            }}
+        }}
+    ]
+}}
+
+IMPORTANT: 
+1. Return ONLY a JSON object with the required fields
+2. For regex patterns in columns, use proper regex syntax (e.g., "^pattern$")
+3. All string values in param and rule must be properly escaped
+4. Headers must be {{"Content-Type": "application/json"}}"""
 
 # Guidelines for different test types
 GUIDELINES = {
     "functional": """
-- Verify the core functionality of the API across different business scenarios
-- Cover main success scenarios with various valid input combinations
-- Validate response format and content for different data types
-- Check business logic implementation with different user roles/permissions
-- Ensure data persistence and retrieval work correctly
-- Test different workflow states and transitions
-- Validate integration with dependent services
-- Cover different authentication and authorization scenarios""",
+Focus on:
+- Basic API functionality verification
+- Common use cases
+- Valid input combinations
+- Expected response structure
+Use assertion rules to verify:
+- Exact matches for deterministic responses
+- Position-based checks for ordered results
+- Pattern matching for dynamic content""",
 
     "performance": """
-- Test response times under different load conditions (light, medium, heavy)
-- Verify throughput capabilities with concurrent users
-- Check resource utilization under stress conditions
-- Test performance with large datasets and complex queries
-- Measure performance degradation patterns
-- Test memory usage and garbage collection impact
-- Validate performance with different network conditions
-- Include relevant performance metrics and acceptable thresholds""",
+Focus on:
+- Response time verification
+- Result quality under load
+- Data volume handling
+Use assertion rules to verify:
+- Top N results quality
+- Minimum/maximum value constraints
+- Response structure under load""",
 
     "boundary": """
-- Test edge cases for all input parameters (min/max values)
-- Include minimum and maximum string lengths
-- Test numerical boundaries (zero, negative, overflow)
-- Verify handling of empty, null, and undefined values
-- Check array/list size limits (empty, single item, maximum)
-- Test special characters and encoding edge cases
-- Validate date/time boundary conditions
-- Test resource limits and capacity constraints""",
+Focus on:
+- Edge cases and limit values
+- Minimum/maximum parameter values
+- Special characters and formats
+Use assertion rules to verify:
+- Exact matches for edge cases
+- Pattern matching for format validation
+- Position checks for sorted results""",
 
     "exception": """
-- Test comprehensive error handling scenarios
-- Include invalid input format and type mismatches
-- Verify authentication and authorization failures
-- Test network timeout and connection errors
-- Check resource not found and access denied scenarios
-- Validate input validation errors with detailed messages
-- Test system unavailability and service degradation
-- Include security validation failures and injection attempts
-- Verify proper error response format and HTTP status codes"""
+Focus on:
+- Invalid input handling
+- Error response verification
+- Security boundaries
+Use assertion rules to verify:
+- Error code matches
+- Error message patterns
+- Response structure for errors"""
 }
 
-class TestCasePrompts:
-    """Collection of prompts for generating different types of test cases"""
+# Create prompt templates for each test type
+test_case_prompt = PromptTemplate(
+    input_variables=["api_definition", "similar_cases", "test_type", "guidelines"],
+    template=BASE_TEMPLATE
+)
 
-    @staticmethod
-    def get_prompt(test_type: str) -> PromptTemplate:
-        """Get the prompt template for a specific test case type"""
-        if test_type not in GUIDELINES:
-            raise ValueError(f"Unknown test type: {test_type}")
-
-        # Create a template with test_type and guidelines already filled in
-        template = f"""You are a test automation expert. Generate a {test_type} test case for this API:
-
-API Definition:
-{{api_definition}}
-
-Similar Test Cases for Reference:
-{{similar_cases}}
-
-Test Guidelines:
-{GUIDELINES[test_type]}
-
-Required fields:
-- name: Clear and descriptive name
-- description: Detailed test description
-- type: "{test_type}"
-- input_data: Dictionary of input parameters
-- expected_output: Dictionary of expected response
-- preconditions: List of preconditions
-- postconditions: List of postconditions
-- tags: List of relevant tags
-
-Additional fields for specific types:
-- For performance tests: Include "performance_metrics" dictionary
-- For exception tests: Include "expected_exception" string
-
-IMPORTANT: Return ONLY a JSON object with these fields. No markdown, no explanations."""
-        
-        return PromptTemplate(
-            input_variables=["api_definition", "similar_cases"],
-            template=template
-        )
-
-    @staticmethod
-    def format_api_definition(api_def: Dict[str, Any]) -> str:
-        """Format API definition for prompt input"""
-        return f"""
-Name: {api_def['name']}
-Description: {api_def.get('description', 'N/A')}
-Method: {api_def['method']}
-Path: {api_def.get('path', 'N/A')}
-
-Input Parameters:
-{TestCasePrompts._format_parameters(api_def['input_params'])}
-
-Output Parameters:
-{TestCasePrompts._format_parameters(api_def['output_params'])}
-"""
-
-    @staticmethod
-    def format_similar_cases(cases: list) -> str:
-        """Format similar test cases for prompt input"""
-        if not cases:
-            return "No similar test cases available."
-
-        formatted_cases = []
-        for case in cases:
-            formatted_case = f"""
-Test Case: {case['name']}
-Type: {case['type']}
-Description: {case['description']}
-Input: {case['input_data']}
-Expected Output: {case['expected_output']}
-"""
-            formatted_cases.append(formatted_case)
-
-        return "\n".join(formatted_cases)
-
-    @staticmethod
-    def _format_parameters(params: Dict[str, Any]) -> str:
-        """Helper method to format parameters"""
-        if not params:
-            return "None"
-
-        formatted = []
-        for name, param in params.items():
-            constraints = param.get('constraints', {})
-            constraints_str = ", ".join(f"{k}={v}" for k, v in constraints.items()) if constraints else "None"
-            
-            formatted.append(f"""- {name}:
-  Type: {param['type']}
-  Required: {param.get('required', True)}
-  Description: {param.get('description', 'N/A')}
-  Constraints: {constraints_str}""")
-
-        return "\n".join(formatted) 
+# System message for chat models
+SYSTEM_MESSAGE = """You are an expert test automation engineer. Your task is to generate high-quality test cases that:
+1. Follow the exact output format specified
+2. Use meaningful assertions based on API behavior
+3. Cover important test scenarios
+4. Use appropriate regex patterns where needed
+5. Generate unique UUIDs for each test case""" 

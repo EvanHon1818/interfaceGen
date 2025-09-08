@@ -1,66 +1,52 @@
-from typing import Dict, Any, List, Optional
-from enum import Enum
 from pydantic import BaseModel, Field
+from typing import Dict, Any
+import json
+import uuid
 
-class TestCaseType(str, Enum):
-    """Enumeration of test case types"""
-    FUNCTIONAL = "functional"
-    PERFORMANCE = "performance"
-    BOUNDARY = "boundary"
-    EXCEPTION = "exception"
-
-class TestCaseStatus(str, Enum):
-    """Enumeration of test case statuses"""
-    PASS = "pass"
-    FAIL = "fail"
-    ERROR = "error"
-    SKIP = "skip"
+class TestCaseJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder for test cases"""
+    def default(self, obj):
+        if isinstance(obj, TestCase):
+            return {
+                "id": obj.id,
+                "name": obj.name,
+                "param": obj.param,
+                "headers": {"Content-Type": "application/json"},
+                "rule": obj.rule
+            }
+        return super().default(obj)
 
 class TestCase(BaseModel):
-    """Model for a single test case"""
-    id: str = Field(..., description="Unique identifier for the test case")
-    name: str = Field(..., description="Name of the test case")
-    description: str = Field(..., description="Description of what the test case verifies")
-    type: TestCaseType = Field(..., description="Type of test case")
-    input_data: Dict[str, Any] = Field(..., description="Input data for the test case")
-    expected_output: Dict[str, Any] = Field(..., description="Expected output data")
-    preconditions: Optional[List[str]] = Field(default_factory=list, description="Required preconditions")
-    postconditions: Optional[List[str]] = Field(default_factory=list, description="Expected postconditions")
-    tags: List[str] = Field(default_factory=list, description="Tags for categorizing the test case")
-    
-    # Performance specific fields
-    performance_metrics: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Performance metrics to measure (e.g., response_time, throughput)"
-    )
-    
-    # Exception specific fields
-    expected_exception: Optional[str] = Field(None, description="Expected exception type if applicable")
-    
+    """Model for a test case"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    param: str  # JSON string of input parameters
+    headers: Dict[str, str] = Field(default_factory=lambda: {"Content-Type": "application/json"})
+    rule: str  # JSON string of assertion rules
+
+    def json(self, **kwargs):
+        """Custom JSON serialization"""
+        return json.dumps(self, cls=TestCaseJSONEncoder, **kwargs)
+
     class Config:
         json_schema_extra = {
             "example": {
-                "id": "test_001",
-                "name": "Valid user registration",
-                "description": "Test user registration with valid input data",
-                "type": "functional",
-                "input_data": {
-                    "username": "testuser",
-                    "email": "test@example.com",
-                    "password": "SecurePass123!"
-                },
-                "expected_output": {
-                    "status": "success",
-                    "user_id": "uuid-example"
-                },
-                "preconditions": ["Database is accessible", "Email is not already registered"],
-                "postconditions": ["User is created in database", "Welcome email is sent"],
-                "tags": ["registration", "happy-path", "user-management"]
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "Search for Disney in top 10 results",
+                "param": "{\"keyword\": \"disney\", \"limit\": 10}",
+                "headers": {"Content-Type": "application/json"},
+                "rule": """{
+                    "rules": [
+                        {
+                            "matchType": "top",
+                            "index": "10",
+                            "dataPath": "data",
+                            "columns": {
+                                "name": "迪士尼",
+                                "id": 123
+                            }
+                        }
+                    ]
+                }"""
             }
-        }
-
-class TestSuite(BaseModel):
-    """Model for a collection of test cases"""
-    api_definition: str = Field(..., description="Reference to the API definition")
-    test_cases: List[TestCase] = Field(default_factory=list, description="List of test cases")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata") 
+        } 

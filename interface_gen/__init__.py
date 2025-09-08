@@ -15,9 +15,13 @@ from .exceptions import (
     LLMError,
     ValidationError,
 )
-from .utils.logger import logger
+from .utils.logger import setup_logger
 
 __version__ = "0.2.0"
+
+# Set up root logger
+logger = setup_logger(__name__)
+
 __all__ = [
     "config",
     "logger",
